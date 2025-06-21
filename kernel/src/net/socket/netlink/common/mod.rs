@@ -13,8 +13,11 @@ use crate::{
         netlink::{table::SupportedNetlinkProtocol, AddMembership, DropMembership},
         options::SocketOption,
         private::SocketPrivate,
-        util::datagram_common::{select_remote_and_bind, Bound, Inner},
-        MessageHeader, SendRecvFlags, Socket, SocketAddr,
+        util::{
+            datagram_common::{select_remote_and_bind, Bound, Inner},
+            MessageHeader, SendRecvFlags, SocketAddr,
+        },
+        Socket,
     },
     prelude::*,
     process::signal::{PollHandle, Pollable, Pollee},
@@ -137,6 +140,11 @@ where
         if control_message.is_some() {
             // TODO: Support sending control message
             warn!("sending control message is not supported");
+        }
+
+        if reader.is_empty() {
+            // Based on how Linux behaves, zero-sized messages are not allowed for netlink sockets.
+            return_errno_with_message!(Errno::ENODATA, "there are no data to send");
         }
 
         // TODO: Make sure our blocking behavior matches that of Linux
