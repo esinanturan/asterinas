@@ -7,8 +7,7 @@ use crate::{
     events::IoEvents,
     net::socket::{
         netlink::{common::BoundNetlink, NetlinkSocketAddr},
-        util::datagram_common,
-        SendRecvFlags,
+        util::{datagram_common, SendRecvFlags},
     },
     prelude::*,
     util::{MultiRead, MultiWrite},
@@ -81,7 +80,7 @@ impl datagram_common::Bound for BoundNetlinkUevent {
 
         response.write_to(writer)?;
 
-        let remote = response.src_addr().clone();
+        let remote = *response.src_addr();
 
         if !flags.contains(SendRecvFlags::MSG_PEEK) {
             receive_queue.pop_front().unwrap();
