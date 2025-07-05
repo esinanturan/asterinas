@@ -3,8 +3,9 @@
 //! Metadata management of frames.
 //!
 //! You can picture a globally shared, static, gigantic array of metadata
-//! initialized for each frame. An entry in the array is called a [`MetaSlot`],
-//! which contains the metadata of a frame. There would be a dedicated small
+//! initialized for each frame.
+//! Each entry in this array holds the metadata for a single frame.
+//! There would be a dedicated small
 //! "heap" space in each slot for dynamic metadata. You can store anything as
 //! the metadata of a frame as long as it's [`Sync`].
 //!
@@ -106,6 +107,7 @@ pub(in crate::mm) struct MetaSlot {
     ///
     /// [`Frame::from_unused`]: super::Frame::from_unused
     /// [`UniqueFrame`]: super::unique::UniqueFrame
+    /// [`drop_last_in_place`]: Self::drop_last_in_place
     //
     // Other than this field the fields should be `MaybeUninit`.
     // See initialization in `alloc_meta_frames`.
@@ -550,10 +552,15 @@ fn alloc_meta_frames(tot_nr_frames: usize) -> (usize, Paddr) {
     (nr_meta_pages, start_paddr)
 }
 
-/// The metadata of physical pages that cannot be allocated for general use.
+/// Unusable memory metadata. Cannot be used for any purposes.
 #[derive(Debug)]
 pub struct UnusableMemoryMeta;
 impl_frame_meta_for!(UnusableMemoryMeta);
+
+/// Reserved memory metadata. Maybe later used as I/O memory.
+#[derive(Debug)]
+pub struct ReservedMemoryMeta;
+impl_frame_meta_for!(ReservedMemoryMeta);
 
 /// The metadata of physical pages that contains the kernel itself.
 #[derive(Debug, Default)]
@@ -580,12 +587,12 @@ fn mark_unusable_ranges() {
     {
         match region.typ() {
             MemoryRegionType::BadMemory => mark_ranges!(region, UnusableMemoryMeta),
-            MemoryRegionType::Unknown => mark_ranges!(region, UnusableMemoryMeta),
+            MemoryRegionType::Unknown => mark_ranges!(region, ReservedMemoryMeta),
             MemoryRegionType::NonVolatileSleep => mark_ranges!(region, UnusableMemoryMeta),
-            MemoryRegionType::Reserved => mark_ranges!(region, UnusableMemoryMeta),
+            MemoryRegionType::Reserved => mark_ranges!(region, ReservedMemoryMeta),
             MemoryRegionType::Kernel => mark_ranges!(region, KernelMeta),
             MemoryRegionType::Module => mark_ranges!(region, UnusableMemoryMeta),
-            MemoryRegionType::Framebuffer => mark_ranges!(region, UnusableMemoryMeta),
+            MemoryRegionType::Framebuffer => mark_ranges!(region, ReservedMemoryMeta),
             MemoryRegionType::Reclaimable => mark_ranges!(region, UnusableMemoryMeta),
             MemoryRegionType::Usable => {} // By default it is initialized as usable.
         }

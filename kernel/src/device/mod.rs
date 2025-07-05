@@ -11,11 +11,12 @@ mod zero;
 #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
 mod tdxguest;
 
+use alloc::format;
+
 pub use pty::{new_pty_pair, PtyMaster, PtySlave};
 pub use random::Random;
 pub use urandom::Urandom;
 
-use self::tty::get_n_tty;
 use crate::{
     fs::device::{add_node, Device, DeviceId, DeviceType},
     prelude::*,
@@ -25,23 +26,37 @@ use crate::{
 pub fn init() -> Result<()> {
     let null = Arc::new(null::Null);
     add_node(null, "null")?;
+
     let zero = Arc::new(zero::Zero);
     add_node(zero, "zero")?;
+
     tty::init();
-    let console = get_n_tty().clone();
-    add_node(console, "console")?;
+
     let tty = Arc::new(tty::TtyDevice);
     add_node(tty, "tty")?;
+
+    let console = tty::system_console().clone();
+    add_node(console, "console")?;
+
+    for (index, tty) in tty::iter_n_tty().enumerate() {
+        add_node(tty.clone(), &format!("tty{}", index))?;
+    }
+
     #[cfg(target_arch = "x86_64")]
     ostd::if_tdx_enabled!({
         add_node(Arc::new(tdxguest::TdxGuest), "tdx_guest")?;
     });
+
     let random = Arc::new(random::Random);
     add_node(random, "random")?;
+
     let urandom = Arc::new(urandom::Urandom);
     add_node(urandom, "urandom")?;
+
     pty::init()?;
+
     shm::init()?;
+
     Ok(())
 }
 
@@ -49,12 +64,7 @@ pub fn init() -> Result<()> {
 // Instead of hardcoding every device numbers in this function,
 // a registration mechanism should be used to allow each driver to
 // allocate device IDs either statically or dynamically.
-pub fn get_device(dev: usize) -> Result<Arc<dyn Device>> {
-    if dev == 0 {
-        return_errno_with_message!(Errno::EPERM, "whiteout device")
-    }
-
-    let devid = DeviceId::from(dev as u64);
+pub fn get_device(devid: DeviceId) -> Result<Arc<dyn Device>> {
     let major = devid.major();
     let minor = devid.minor();
 
@@ -64,6 +74,6 @@ pub fn get_device(dev: usize) -> Result<Arc<dyn Device>> {
         (5, 0) => Ok(Arc::new(tty::TtyDevice)),
         (1, 8) => Ok(Arc::new(random::Random)),
         (1, 9) => Ok(Arc::new(urandom::Urandom)),
-        _ => return_errno_with_message!(Errno::EINVAL, "unsupported device"),
+        _ => return_errno_with_message!(Errno::EINVAL, "the device ID is invalid or unsupported"),
     }
 }

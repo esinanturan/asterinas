@@ -111,8 +111,8 @@ pub fn global_frame_allocator(_attr: TokenStream, item: TokenStream) -> TokenStr
 /// This attribute is not to be confused with Rust's built-in
 /// [`global_allocator`] attribute, which applies to a static variable
 /// implementing the unsafe `GlobalAlloc` trait. In contrast, the
-/// [`global_heap_allocator`] attribute does not require the heap allocator to
-/// implement an unsafe trait. [`global_heap_allocator`] eventually relies on
+/// [`macro@global_heap_allocator`] attribute does not require the heap allocator to
+/// implement an unsafe trait. [`macro@global_heap_allocator`] eventually relies on
 /// [`global_allocator`] to customize Rust's heap allocator.
 ///
 /// # Example
@@ -320,11 +320,9 @@ pub fn ktest(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let package_name = std::env::var("CARGO_PKG_NAME").unwrap();
-    let span = proc_macro::Span::call_site();
-    let source = span.source_file().path();
-    let source = source.to_str().unwrap();
-    let line = span.line();
-    let col = span.column();
+    let span = proc_macro2::Span::call_site();
+    let line = span.start().line;
+    let col = span.start().column;
 
     let register_ktest_item = if package_name.as_str() == "ostd" {
         quote! {
@@ -338,7 +336,7 @@ pub fn ktest(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     module_path: module_path!(),
                     fn_name: stringify!(#fn_name),
                     package: #package_name,
-                    source: #source,
+                    source: file!(),
                     line: #line,
                     col: #col,
                 },
@@ -356,7 +354,7 @@ pub fn ktest(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     module_path: module_path!(),
                     fn_name: stringify!(#fn_name),
                     package: #package_name,
-                    source: #source,
+                    source: file!(),
                     line: #line,
                     col: #col,
                 },

@@ -25,7 +25,7 @@ use cfg_if::cfg_if;
 use log::debug;
 use spin::Once;
 
-use super::ex_table::ExTable;
+use super::{cpu::context::GeneralRegs, ex_table::ExTable};
 use crate::{
     arch::{
         if_tdx_enabled,
@@ -38,6 +38,7 @@ use crate::{
         page_prop::{CachePolicy, PageProperty},
         PageFlags, PrivilegedPageFlags as PrivFlags, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
+    task::disable_preempt,
     trap::call_irq_callback_functions,
 };
 
@@ -102,7 +103,7 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
-/// Initialize interrupt handling on x86_64.
+/// Initializes interrupt handling on x86_64.
 ///
 /// This function will:
 /// - Switch to a new, CPU-local [GDT].
@@ -118,7 +119,7 @@ pub struct TrapFrame {
 /// # Safety
 ///
 /// This method must be called only in the boot context of each available processor.
-pub unsafe fn init() {
+pub(crate) unsafe fn init() {
     // SAFETY: We're in the boot context, so no preemption can occur.
     unsafe { gdt::init() };
 
@@ -128,90 +129,13 @@ pub unsafe fn init() {
     unsafe { syscall::init() };
 }
 
-/// User space context.
+/// Userspace context.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
-#[expect(missing_docs)]
-pub struct UserContext {
-    pub general: GeneralRegs,
-    pub trap_num: usize,
-    pub error_code: usize,
-}
-
-/// General registers.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
-#[repr(C)]
-#[expect(missing_docs)]
-pub struct GeneralRegs {
-    pub rax: usize,
-    pub rbx: usize,
-    pub rcx: usize,
-    pub rdx: usize,
-    pub rsi: usize,
-    pub rdi: usize,
-    pub rbp: usize,
-    pub rsp: usize,
-    pub r8: usize,
-    pub r9: usize,
-    pub r10: usize,
-    pub r11: usize,
-    pub r12: usize,
-    pub r13: usize,
-    pub r14: usize,
-    pub r15: usize,
-    pub rip: usize,
-    pub rflags: usize,
-    pub fsbase: usize,
-    pub gsbase: usize,
-}
-
-impl UserContext {
-    /// Get number of syscall.
-    pub fn get_syscall_num(&self) -> usize {
-        self.general.rax
-    }
-
-    /// Get return value of syscall.
-    pub fn get_syscall_ret(&self) -> usize {
-        self.general.rax
-    }
-
-    /// Set return value of syscall.
-    pub fn set_syscall_ret(&mut self, ret: usize) {
-        self.general.rax = ret;
-    }
-
-    /// Get syscall args.
-    pub fn get_syscall_args(&self) -> [usize; 6] {
-        [
-            self.general.rdi,
-            self.general.rsi,
-            self.general.rdx,
-            self.general.r10,
-            self.general.r8,
-            self.general.r9,
-        ]
-    }
-
-    /// Set instruction pointer.
-    pub fn set_ip(&mut self, ip: usize) {
-        self.general.rip = ip;
-    }
-
-    /// Set stack pointer.
-    pub fn set_sp(&mut self, sp: usize) {
-        self.general.rsp = sp;
-    }
-
-    /// Get stack pointer.
-    pub fn get_sp(&self) -> usize {
-        self.general.rsp
-    }
-
-    /// Set thread-local storage pointer.
-    pub fn set_tls(&mut self, tls: usize) {
-        self.general.fsbase = tls;
-    }
+pub(super) struct RawUserContext {
+    pub(super) general: GeneralRegs,
+    pub(super) trap_num: usize,
+    pub(super) error_code: usize,
 }
 
 /// Returns true if this function is called within the context of an IRQ handler
@@ -322,6 +246,8 @@ fn handle_user_page_fault(f: &mut TrapFrame, page_fault_addr: u64) {
 /// FIXME: this is a hack because we don't allocate kernel space for IO memory. We are currently
 /// using the linear mapping for IO memory. This is not a good practice.
 fn handle_kernel_page_fault(f: &TrapFrame, page_fault_vaddr: u64) {
+    let preempt_guard = disable_preempt();
+
     let error_code = PageFaultErrorCode::from_bits_truncate(f.error_code);
     debug!(
         "kernel page fault: address {:?}, error code {:?}",
@@ -362,23 +288,20 @@ fn handle_kernel_page_fault(f: &TrapFrame, page_fault_vaddr: u64) {
     } else {
         PrivFlags::GLOBAL
     });
+    let prop = PageProperty {
+        flags: PageFlags::RW,
+        cache: CachePolicy::Uncacheable,
+        priv_flags,
+    };
+
+    let mut cursor = page_table
+        .cursor_mut(&preempt_guard, &(vaddr..vaddr + PAGE_SIZE))
+        .unwrap();
 
     // SAFETY:
     // 1. We have checked that the page fault address falls within the address range of the direct
     //    mapping of physical memory.
     // 2. We map the address to the correct physical page with the correct flags, where the
     //    correctness follows the semantics of the direct mapping of physical memory.
-    unsafe {
-        page_table
-            .map(
-                &(vaddr..vaddr + PAGE_SIZE),
-                &(paddr..paddr + PAGE_SIZE),
-                PageProperty {
-                    flags: PageFlags::RW,
-                    cache: CachePolicy::Uncacheable,
-                    priv_flags,
-                },
-            )
-            .unwrap();
-    }
+    unsafe { cursor.map(crate::mm::kspace::MappedItem::Untracked(paddr, 1, prop)) }.unwrap();
 }

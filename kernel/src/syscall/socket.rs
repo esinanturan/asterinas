@@ -4,7 +4,7 @@ use super::SyscallReturn;
 use crate::{
     fs::{file_handle::FileLike, file_table::FdFlags},
     net::socket::{
-        ip::{datagram::DatagramSocket, stream::StreamSocket},
+        ip::{DatagramSocket, StreamSocket},
         netlink::{
             is_valid_protocol, NetlinkRouteSocket, NetlinkUeventSocket, StandardNetlinkProtocol,
         },
@@ -77,7 +77,7 @@ pub fn sys_socket(domain: i32, type_: i32, protocol: i32, ctx: &Context) -> Resu
             }
         }
         (CSocketAddrFamily::AF_VSOCK, SockType::SOCK_STREAM) => {
-            Arc::new(VsockStreamSocket::new(is_nonblocking)) as Arc<dyn FileLike>
+            Arc::new(VsockStreamSocket::new(is_nonblocking)?) as Arc<dyn FileLike>
         }
         _ => return_errno_with_message!(Errno::EAFNOSUPPORT, "unsupported domain"),
     };

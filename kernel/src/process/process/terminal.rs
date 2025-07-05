@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use super::{session::SessionGuard, JobControl, Pgid, Process, Session, Sid};
 use crate::{
     current_userspace,
-    fs::{inode_handle::FileIo, utils::IoctlCmd},
+    fs::{device::Device, inode_handle::FileIo, utils::IoctlCmd},
     prelude::{current, return_errno_with_message, warn, Errno, Error, Result},
     process::process_table,
 };
@@ -14,7 +14,7 @@ use crate::{
 ///
 /// We currently support two kinds of terminal, the TTY and PTY. They're associated with a
 /// `JobControl` to track the session and the foreground process group.
-pub trait Terminal: FileIo {
+pub trait Terminal: FileIo + Device {
     /// Returns the job control of the terminal.
     fn job_control(&self) -> &JobControl;
 }
@@ -108,7 +108,7 @@ impl dyn Terminal {
         let mut session_inner = session.lock();
 
         if let Some(session_terminal) = session_inner.terminal() {
-            if Arc::ptr_eq(&session_terminal, &self) {
+            if Arc::ptr_eq(session_terminal, &self) {
                 return Ok(());
             }
             return_errno_with_message!(
@@ -195,7 +195,7 @@ impl dyn Terminal {
 
         if !session_inner
             .terminal()
-            .is_some_and(|session_terminal| Arc::ptr_eq(session_terminal, &self))
+            .is_some_and(|session_terminal| Arc::ptr_eq(session_terminal, self))
         {
             return_errno_with_message!(
                 Errno::ENOTTY,

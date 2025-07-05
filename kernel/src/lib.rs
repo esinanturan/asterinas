@@ -28,7 +28,6 @@
 #![feature(associated_type_defaults)]
 #![register_tool(component_access_control)]
 
-use aster_framebuffer::FRAMEBUFFER_CONSOLE;
 use kcmdline::KCmdlineArg;
 use ostd::{
     arch::qemu::{exit_qemu, QemuExitCode},
@@ -47,6 +46,11 @@ extern crate controlled;
 #[macro_use]
 extern crate getset;
 
+#[cfg(target_arch = "x86_64")]
+#[path = "arch/x86/mod.rs"]
+pub mod arch;
+#[cfg(target_arch = "riscv64")]
+#[path = "arch/riscv/mod.rs"]
 pub mod arch;
 pub mod context;
 pub mod cpu;
@@ -111,8 +115,7 @@ fn ap_init() {
         );
 
         loop {
-            crate::thread::Thread::yield_now();
-            ostd::cpu::sleep_for_interrupt();
+            ostd::task::halt_cpu();
         }
     }
 
@@ -141,13 +144,6 @@ fn init_thread() {
 
     print_banner();
 
-    // FIXME: CI fails due to suspected performance issues with the framebuffer console.
-    // Additionally, userspace program may render GUIs using the framebuffer,
-    // so we disable the framebuffer console here.
-    if let Some(console) = FRAMEBUFFER_CONSOLE.get() {
-        console.disable();
-    };
-
     let karg: KCmdlineArg = boot_info().kernel_cmdline.as_str().into();
 
     let initproc = spawn_init_process(
@@ -156,10 +152,10 @@ fn init_thread() {
         karg.get_initproc_envp().to_vec(),
     )
     .expect("Run init process failed.");
+
     // Wait till initproc become zombie.
     while !initproc.status().is_zombie() {
-        crate::thread::Thread::yield_now();
-        ostd::cpu::sleep_for_interrupt();
+        ostd::task::halt_cpu();
     }
 
     // TODO: exit via qemu isa debug device should not be the only way.

@@ -44,6 +44,7 @@
 
 # Component code owners
 /kernel/comps/block/            @lucassong-mh
+/kernel/comps/framebuffer/      @cqs21 @lrh2000
 /kernel/comps/logger/           @cchanging
 /kernel/comps/mlsdisk/          @cqs21 @lucassong-mh
 /kernel/comps/network/          @StevenJiang1110 @lrh2000
@@ -80,7 +81,7 @@
 
 /.github/                       @grief8
 /osdk/tools/docker/             @grief8
-/test/                          @grief8
+/test/                          @cqs21
 /tools/                         @grief8
 /triagebot.toml                 @grief8
 

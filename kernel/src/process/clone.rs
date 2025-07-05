@@ -257,6 +257,9 @@ fn clone_child_task(
     // Inherit sigmask from current thread
     let sig_mask = posix_thread.sig_mask().load(Ordering::Relaxed).into();
 
+    // Inherit the thread name.
+    let thread_name = posix_thread.thread_name().lock().as_ref().cloned();
+
     let child_tid = allocate_posix_tid();
     let child_task = {
         let credentials = {
@@ -266,6 +269,7 @@ fn clone_child_task(
 
         let mut thread_builder = PosixThreadBuilder::new(child_tid, child_user_ctx, credentials)
             .process(posix_thread.weak_process())
+            .thread_name(thread_name)
             .sig_mask(sig_mask)
             .file_table(child_file_table)
             .fs(child_fs);
@@ -515,6 +519,7 @@ fn clone_sysvsem(clone_flags: CloneFlags) -> Result<()> {
     Ok(())
 }
 
+#[expect(clippy::too_many_arguments)]
 fn create_child_process(
     pid: Pid,
     parent: Weak<Process>,
@@ -542,11 +547,12 @@ fn create_child_process(
 }
 
 fn set_parent_and_group(parent: &Process, child: &Arc<Process>) {
-    // Lock order: process table -> children -> group of process
+    // Lock order: children of process -> process table -> group of process
     // -> group inner -> session inner
+    let mut children_mut = parent.children().lock();
+
     let mut process_table_mut = process_table::process_table_mut();
 
-    let mut children_mut = parent.children().lock();
     let process_group_mut = parent.process_group.lock();
 
     let process_group = process_group_mut.upgrade().unwrap();
